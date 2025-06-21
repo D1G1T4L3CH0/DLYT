@@ -317,8 +317,11 @@ fn main() -> io::Result<()> {
     let base_dir = "videos";
     let archive_file = "downloaded.txt";
 
-    if create_default_structure(dir_path)? {
+    let created = create_default_structure(dir_path)?;
+    if created {
         return Ok(());
+    } else {
+        println!("Found existing {} directory. Processing .urls files...", dir_path);
     }
 
     let urls_exist = process_url_files(
