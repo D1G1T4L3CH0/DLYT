@@ -25,7 +25,7 @@ struct Args {
     #[arg(long)]
     use_aria2c: bool,
 
-    /// Allow highest quality even if it may be throttled
+    /// Use best available quality even if it's throttled (e.g., itag=313 VP9)
     #[arg(long)]
     force_best_quality: bool,
 }
@@ -67,7 +67,7 @@ fn get_domain(url: &str) -> Option<String> {
         .and_then(|u| u.host_str().map(|s| s.to_string()))
 }
 
-fn extract_formats(url: &str, force_best_quality: bool) -> io::Result<(bool, bool)> {
+fn extract_formats(url: &str) -> io::Result<(bool, bool)> {
     let output = Command::new("yt-dlp").args(["-J", url]).output()?;
     if !output.status.success() {
         return Ok((false, false));
@@ -80,7 +80,10 @@ fn extract_formats(url: &str, force_best_quality: bool) -> io::Result<(bool, boo
         .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "invalid formats"))?;
 
     let mut has_mp4_1080 = false;
-    let mut has_313 = false;
+    let mut best_height = 0u64;
+    let mut best_id = String::new();
+    let mut best_ext = String::new();
+    let mut best_vcodec = String::new();
 
     for f in formats {
         let id = f.get("format_id").and_then(|v| v.as_str()).unwrap_or("");
@@ -88,41 +91,39 @@ fn extract_formats(url: &str, force_best_quality: bool) -> io::Result<(bool, boo
         let height = f.get("height").and_then(|v| v.as_u64()).unwrap_or(0);
         let vcodec = f.get("vcodec").and_then(|v| v.as_str()).unwrap_or("");
 
-        if id == "313" {
-            has_313 = true;
-        }
-
-        if !force_best_quality {
-            if id == "313" || id == "248" || ext == "webm" {
-                continue;
-            }
-            if vcodec.starts_with("vp9") || vcodec.starts_with("av01") {
-                continue;
-            }
-        }
-
         if ext == "mp4" && height <= 1080 && height > 0 {
             has_mp4_1080 = true;
         }
+
+        if vcodec != "none" && height > best_height {
+            best_height = height;
+            best_id = id.to_string();
+            best_ext = ext.to_string();
+            best_vcodec = vcodec.to_string();
+        }
     }
 
-    Ok((has_mp4_1080, has_313))
+    let best_is_throttled = matches!(best_id.as_str(), "313" | "248" | "271" | "308" | "315")
+        || (best_ext == "webm" && (best_vcodec.starts_with("vp9") || best_vcodec.starts_with("av01")));
+
+    Ok((has_mp4_1080, best_is_throttled))
 }
 
-fn select_format(url: &str, force_best_quality: bool) -> io::Result<(String, bool)> {
-    let (has_mp4_1080, has_313) = extract_formats(url, force_best_quality)?;
+fn select_format(url: &str, force_best_quality: bool) -> io::Result<(String, bool, bool)> {
+    let (has_mp4_1080, best_is_throttled) = extract_formats(url)?;
 
     if force_best_quality {
-        return Ok(("bestvideo+bestaudio/best".to_string(), has_313));
+        return Ok(("bestvideo+bestaudio".to_string(), best_is_throttled, false));
     }
 
-    if has_mp4_1080 {
+    if best_is_throttled && has_mp4_1080 {
         Ok((
             "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]".to_string(),
             false,
+            true,
         ))
     } else {
-        Ok(("best".to_string(), false))
+        Ok(("bestvideo+bestaudio/best".to_string(), false, false))
     }
 }
 
@@ -216,21 +217,27 @@ fn process_url_files(
                 let domain = get_domain(&url).unwrap_or_default();
                 let is_youtube = domain.contains("youtube.com") || domain.contains("youtu.be");
 
-                let (format_str, warn_313) = if is_youtube {
+                let (format_str, warn_throttled, downgraded) = if is_youtube {
                     select_format(&url, force_best_quality)?
                 } else if force_best_quality {
-                    ("bestvideo+bestaudio/best".to_string(), false)
+                    ("bestvideo+bestaudio/best".to_string(), false, false)
                 } else {
-                    ("best".to_string(), false)
+                    ("best".to_string(), false, false)
                 };
 
                 if force_aria2c && is_youtube {
                     eprintln!("Warning: Using aria2c on YouTube may result in slow downloads.");
                 }
 
-                if warn_313 {
+                if warn_throttled {
                     eprintln!(
-                        "Warning: Format itag=313 is known to be heavily throttled by YouTube. Expect very slow downloads unless using VPN or alternate format."
+                        "\u{26A0}\u{FE0F} WARNING: You are downloading a VP9 or AV1 format (e.g. itag=313), which is often throttled by YouTube.\nDownload speed may be extremely slow. Use --no-force-best-quality to allow auto-downgrade to faster formats."
+                    );
+                }
+
+                if downgraded {
+                    println!(
+                        "Auto-selected mp4 1080p+ audio to avoid YouTube throttling. Use --force-best-quality to override."
                     );
                 }
 
