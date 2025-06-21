@@ -46,4 +46,4 @@ Alternatively, if you want to install it, run:
 cargo install --path .
 ```
 
-The compiled binary will be located in '~/.cargo/bin' which should already be in your PATH.
+The compiled binary will be located in `~/.cargo/bin` which should already be in your PATH.
