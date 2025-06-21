@@ -18,5 +18,11 @@ In summary, DLYT is a handy tool for batch downloading and organizing videos fro
 4. Run DLYT again. It will download the videos from the URLs provided in the `.urls` files and store them in the `videos` directory or its subdirectories.
 5. Enjoy your downloaded videos!
 
+## CLI Flags
+
+- `--update-ytdlp` - update `yt-dlp` before starting downloads.
+- `--no-aria2c` - disable the use of `aria2c` as an external downloader.
+- `--prefer-aria2c` - warn if `aria2c` is not installed and prefer using it when available.
+
 Please remember to replace the placeholders in the URLs with actual values before running DLYT. Happy downloading!
 
