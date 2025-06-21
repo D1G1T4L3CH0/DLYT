@@ -28,6 +28,10 @@ struct Args {
     /// Use best available quality even if it's throttled (e.g., itag=313 VP9)
     #[arg(long)]
     force_best_quality: bool,
+
+    /// Skip probing formats with yt-dlp -J for faster startup
+    #[arg(long)]
+    skip_probe: bool,
 }
 
 fn command_exists(cmd: &str) -> bool {
@@ -127,6 +131,19 @@ fn select_format(url: &str, force_best_quality: bool) -> io::Result<(String, boo
     }
 }
 
+fn select_format_without_probe(force_best_quality: bool) -> (String, bool, bool) {
+    if force_best_quality {
+        ("bestvideo+bestaudio/best".to_string(), false, false)
+    } else {
+        (
+            "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]"
+                .to_string(),
+            false,
+            false,
+        )
+    }
+}
+
 fn check_dependencies() -> bool {
     if !command_exists("yt-dlp") || !command_exists("ffmpeg") {
         println!("The required dependencies yt-dlp and ffmpeg are not installed.");
@@ -189,6 +206,7 @@ fn process_url_files(
     base_use_aria2c: bool,
     force_aria2c: bool,
     force_best_quality: bool,
+    skip_probe: bool,
 ) -> io::Result<bool> {
     let mut urls_exist = false;
 
@@ -218,7 +236,11 @@ fn process_url_files(
                 let is_youtube = domain.contains("youtube.com") || domain.contains("youtu.be");
 
                 let (format_str, warn_throttled, downgraded) = if is_youtube {
-                    select_format(&url, force_best_quality)?
+                    if skip_probe {
+                        select_format_without_probe(force_best_quality)
+                    } else {
+                        select_format(&url, force_best_quality)?
+                    }
                 } else if force_best_quality {
                     ("bestvideo+bestaudio/best".to_string(), false, false)
                 } else {
@@ -331,6 +353,7 @@ fn main() -> io::Result<()> {
         base_use_aria2c,
         force_aria2c,
         force_best_quality,
+        args.skip_probe,
     )?;
 
     if !urls_exist {
