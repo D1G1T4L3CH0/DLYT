@@ -40,3 +40,10 @@ cargo build --release
 
 The compiled binary will be located in `target/release/dlyt`.
 
+Alternatively, if you want to install it, run:
+
+```bash
+cargo install --path .
+```
+
+The compiled binary will be located in '~/.cargo/bin' which should already be in your PATH.
