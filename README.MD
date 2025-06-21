@@ -25,7 +25,7 @@ In summary, DLYT is a handy tool for batch downloading and organizing videos fro
 - `--prefer-aria2c` - warn if `aria2c` is not installed and prefer using it when available.
 - `--use-aria2c` - force using `aria2c` even for YouTube links.
 - `--force-best-quality` - use the highest quality even if it's a throttled VP9/AV1 format. Without this flag, DLYT auto-downgrades to fast MP4 1080p when throttling is detected.
-- `--skip-probe` - skip the initial format probe for faster startup (may miss auto-downgrade warnings).
+- `--probe` - perform an initial format probe to warn about throttled formats (slightly slower startup).
 
 Please remember to replace the placeholders in the URLs with actual values before running DLYT. Happy downloading!
 

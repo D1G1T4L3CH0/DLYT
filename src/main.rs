@@ -29,9 +29,9 @@ struct Args {
     #[arg(long)]
     force_best_quality: bool,
 
-    /// Skip probing formats with yt-dlp -J for faster startup
+    /// Probe formats with yt-dlp -J to detect throttling
     #[arg(long)]
-    skip_probe: bool,
+    probe: bool,
 }
 
 fn command_exists(cmd: &str) -> bool {
@@ -206,7 +206,7 @@ fn process_url_files(
     base_use_aria2c: bool,
     force_aria2c: bool,
     force_best_quality: bool,
-    skip_probe: bool,
+    probe: bool,
 ) -> io::Result<bool> {
     let mut urls_exist = false;
 
@@ -236,10 +236,10 @@ fn process_url_files(
                 let is_youtube = domain.contains("youtube.com") || domain.contains("youtu.be");
 
                 let (format_str, warn_throttled, downgraded) = if is_youtube {
-                    if skip_probe {
-                        select_format_without_probe(force_best_quality)
-                    } else {
+                    if probe {
                         select_format(&url, force_best_quality)?
+                    } else {
+                        select_format_without_probe(force_best_quality)
                     }
                 } else if force_best_quality {
                     ("bestvideo+bestaudio/best".to_string(), false, false)
@@ -353,7 +353,7 @@ fn main() -> io::Result<()> {
         base_use_aria2c,
         force_aria2c,
         force_best_quality,
-        args.skip_probe,
+        args.probe,
     )?;
 
     if !urls_exist {
