@@ -29,3 +29,14 @@ In summary, DLYT is a handy tool for batch downloading and organizing videos fro
 
 Please remember to replace the placeholders in the URLs with actual values before running DLYT. Happy downloading!
 
+
+## Building
+
+This project uses [Cargo](https://doc.rust-lang.org/cargo/) as its build system. To compile DLYT from source, run:
+
+```bash
+cargo build --release
+```
+
+The compiled binary will be located in `target/release/dlyt`.
+
