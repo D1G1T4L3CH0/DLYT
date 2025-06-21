@@ -23,6 +23,8 @@ In summary, DLYT is a handy tool for batch downloading and organizing videos fro
 - `--update-ytdlp` - update `yt-dlp` before starting downloads.
 - `--no-aria2c` - disable the use of `aria2c` as an external downloader.
 - `--prefer-aria2c` - warn if `aria2c` is not installed and prefer using it when available.
+- `--use-aria2c` - force using `aria2c` even for YouTube links.
+- `--force-best-quality` - allow throttled formats like VP9/itag 313 for 4K downloads.
 
 Please remember to replace the placeholders in the URLs with actual values before running DLYT. Happy downloading!
 

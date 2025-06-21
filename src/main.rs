@@ -1,8 +1,10 @@
 use clap::Parser;
+use serde_json::Value;
 use std::fs::{self, File};
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use url::Url;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
@@ -18,6 +20,14 @@ struct Args {
     /// Prefer aria2c and warn if it's unavailable
     #[arg(long)]
     prefer_aria2c: bool,
+
+    /// Force use of aria2c even for YouTube
+    #[arg(long)]
+    use_aria2c: bool,
+
+    /// Allow highest quality even if it may be throttled
+    #[arg(long)]
+    force_best_quality: bool,
 }
 
 fn command_exists(cmd: &str) -> bool {
@@ -49,6 +59,71 @@ fn is_ytdlp_outdated() -> Result<bool, std::io::Error> {
 
 fn aria2c_available() -> bool {
     which::which("aria2c").is_ok()
+}
+
+fn get_domain(url: &str) -> Option<String> {
+    Url::parse(url)
+        .ok()
+        .and_then(|u| u.host_str().map(|s| s.to_string()))
+}
+
+fn extract_formats(url: &str, force_best_quality: bool) -> io::Result<(bool, bool)> {
+    let output = Command::new("yt-dlp").args(["-J", url]).output()?;
+    if !output.status.success() {
+        return Ok((false, false));
+    }
+
+    let json: Value = serde_json::from_slice(&output.stdout)?;
+    let formats = json
+        .get("formats")
+        .and_then(|f| f.as_array())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "invalid formats"))?;
+
+    let mut has_mp4_1080 = false;
+    let mut has_313 = false;
+
+    for f in formats {
+        let id = f.get("format_id").and_then(|v| v.as_str()).unwrap_or("");
+        let ext = f.get("ext").and_then(|v| v.as_str()).unwrap_or("");
+        let height = f.get("height").and_then(|v| v.as_u64()).unwrap_or(0);
+        let vcodec = f.get("vcodec").and_then(|v| v.as_str()).unwrap_or("");
+
+        if id == "313" {
+            has_313 = true;
+        }
+
+        if !force_best_quality {
+            if id == "313" || id == "248" || ext == "webm" {
+                continue;
+            }
+            if vcodec.starts_with("vp9") || vcodec.starts_with("av01") {
+                continue;
+            }
+        }
+
+        if ext == "mp4" && height <= 1080 && height > 0 {
+            has_mp4_1080 = true;
+        }
+    }
+
+    Ok((has_mp4_1080, has_313))
+}
+
+fn select_format(url: &str, force_best_quality: bool) -> io::Result<(String, bool)> {
+    let (has_mp4_1080, has_313) = extract_formats(url, force_best_quality)?;
+
+    if force_best_quality {
+        return Ok(("bestvideo+bestaudio/best".to_string(), has_313));
+    }
+
+    if has_mp4_1080 {
+        Ok((
+            "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]".to_string(),
+            false,
+        ))
+    } else {
+        Ok(("best".to_string(), false))
+    }
 }
 
 fn check_dependencies() -> bool {
@@ -110,7 +185,9 @@ fn process_url_files(
     dir_path: &str,
     base_dir: &str,
     archive_file: &str,
-    use_aria2c: bool,
+    base_use_aria2c: bool,
+    force_aria2c: bool,
+    force_best_quality: bool,
 ) -> io::Result<bool> {
     let mut urls_exist = false;
 
@@ -131,47 +208,69 @@ fn process_url_files(
 
             for line in reader.lines() {
                 let url = line?;
-                if !url.starts_with('#') {
-                    urls_exist = true;
-                    break;
+                if url.trim().is_empty() || url.starts_with('#') {
+                    continue;
                 }
-            }
 
-            if urls_exist {
+                urls_exist = true;
+                let domain = get_domain(&url).unwrap_or_default();
+                let is_youtube = domain.contains("youtube.com") || domain.contains("youtu.be");
+
+                let (format_str, warn_313) = if is_youtube {
+                    select_format(&url, force_best_quality)?
+                } else if force_best_quality {
+                    ("bestvideo+bestaudio/best".to_string(), false)
+                } else {
+                    ("best".to_string(), false)
+                };
+
+                if force_aria2c && is_youtube {
+                    eprintln!("Warning: Using aria2c on YouTube may result in slow downloads.");
+                }
+
+                if warn_313 {
+                    eprintln!(
+                        "Warning: Format itag=313 is known to be heavily throttled by YouTube. Expect very slow downloads unless using VPN or alternate format."
+                    );
+                }
+
+                let use_aria = if force_aria2c {
+                    true
+                } else if base_use_aria2c {
+                    !is_youtube
+                } else {
+                    false
+                };
+
                 let mut cmd = Command::new("yt-dlp");
-                cmd.arg("-a")
-                    .arg(path.to_str().unwrap())
+                cmd.arg(&url)
                     .arg("--download-archive")
                     .arg(archive_file)
-                    .args([
-                        "--concurrent-fragments",
-                        "10",
-                        "--no-part",
-                        "--user-agent",
-                        "Mozilla/5.0",
-                    ])
+                    .arg("--user-agent")
+                    .arg("Mozilla/5.0")
                     .arg("-f")
-                    .arg("bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]")
+                    .arg(&format_str)
                     .arg("--prefer-ffmpeg")
                     .arg("--write-description")
                     .arg("--add-metadata")
                     .arg("--write-auto-sub")
                     .arg("--embed-subs");
 
-                if use_aria2c {
+                if use_aria {
                     cmd.args([
                         "--external-downloader",
                         "aria2c",
                         "--external-downloader-args",
-                        "-x 16 -k 1M",
+                        "-x 4 -k 1M",
                     ]);
+                } else {
+                    cmd.args(["--concurrent-fragments", "10", "--no-part"]);
                 }
 
                 cmd.arg("-o")
                     .arg(output_dir.join("%(title)s.%(ext)s").to_str().unwrap());
 
                 let status = cmd.status()?;
-
                 println!("Download finished with exit status: {}", status);
             }
         }
@@ -199,7 +298,9 @@ fn main() -> io::Result<()> {
     }
 
     let prefer_aria2c = args.prefer_aria2c;
-    let use_aria2c = !args.no_aria2c && aria2c_available();
+    let base_use_aria2c = !args.no_aria2c && aria2c_available();
+    let force_aria2c = args.use_aria2c;
+    let force_best_quality = args.force_best_quality;
 
     if prefer_aria2c && !aria2c_available() && !args.no_aria2c {
         eprintln!("aria2c not found. Install it with `sudo apt install aria2` or disable with --no-aria2c.");
@@ -213,7 +314,14 @@ fn main() -> io::Result<()> {
         return Ok(());
     }
 
-    let urls_exist = process_url_files(dir_path, base_dir, archive_file, use_aria2c)?;
+    let urls_exist = process_url_files(
+        dir_path,
+        base_dir,
+        archive_file,
+        base_use_aria2c,
+        force_aria2c,
+        force_best_quality,
+    )?;
 
     if !urls_exist {
         println!("No URLs found in the .urls files. Please add URLs to the .urls files for downloading videos. Each URL should be on a new line. Lines starting with '#' are considered comments and are ignored.");
