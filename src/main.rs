@@ -11,7 +11,7 @@ struct Args {
     #[arg(long)]
     update_ytdlp: bool,
 
-    /// Disable use of aria2c as an external downloader
+    /// Disable aria2c even if installed
     #[arg(long)]
     no_aria2c: bool,
 
@@ -201,7 +201,7 @@ fn main() -> io::Result<()> {
     let prefer_aria2c = args.prefer_aria2c;
     let use_aria2c = !args.no_aria2c && aria2c_available();
 
-    if prefer_aria2c && !aria2c_available() {
+    if prefer_aria2c && !aria2c_available() && !args.no_aria2c {
         eprintln!("aria2c not found. Install it with `sudo apt install aria2` or disable with --no-aria2c.");
     }
 
