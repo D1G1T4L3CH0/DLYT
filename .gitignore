@@ -1,1 +1,6 @@
 /target
+/videos/
+/urls/
+/downloaded.txt
+cookies.txt
+*.cookies
